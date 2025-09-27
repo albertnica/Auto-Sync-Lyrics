@@ -21,7 +21,7 @@ The use of [LRCGET](https://github.com/tranxuanthang/lrcget) is highly recommend
 * If an LRC file is present inside `songs`, it is treated as **authoritative**: moved into `lyrics` and copied into `.lyrics_db`, overwriting prior DB entries.
 * Fetches lyrics from Genius (if configured) and writes raw lyrics only to `.logs` (not to `songs`).
 * Avoids interpolating across long silences and applies robust clustering to ignore repeated chorus lines as anchors.
-* Produces human-readable logs for each model and a `.logs/no_anchors.txt` file listing problematic tracks.
+* Produces human-readable logs for each model and a `.logs/.anchors.txt` file listing useful info.
 
 ---
 
@@ -29,10 +29,10 @@ The use of [LRCGET](https://github.com/tranxuanthang/lrcget) is highly recommend
 
 ```
 project-root
-├─ songs                       # put your audio (.flac) + optional local .lrc files here
-├─ lyrics                      # .lrc output files
-├─ .lyrics_db                  # canonical stored LRCs (Title - Artist.lrc), used for restore
-├─ .logs                       # transcripts, model logs, raw lyrics, no_anchors.txt
+├─ songs                        # put your audio (.flac) + optional local .lrc files here
+├─ lyrics                       # .lrc output files
+├─ .lyrics_db                   # canonical stored LRCs (Title - Artist.lrc), used for restore
+├─ .logs                        # transcripts, model logs, raw lyrics, .anchors.txt
 ├─ credentials.json             # API tokens (Genius)
 ├─ anchors_lrc_generator.ipynb  # main script
 ├─ requirements.txt             # python dependencies
@@ -116,7 +116,7 @@ Adjust these values to tune precision vs recall of anchors and interpolation beh
      * Compute interpolated final times for all lines using anchors and avoiding long silences.
    * Choose the best model (most anchors, then highest score_sum).
    * Write the final `.lrc` into `lyrics` and copy into `.lyrics_db` if FLAC metadata exists (or canonicalized name).
-5. **Write `.logs/no_anchors.txt`** listing files where no reliable anchors were found.
+5. **Write `.logs/.anchors.txt`** listing files containing the song basename and the result (chosen model name or a failure tag like “all models failed” / “lyrics retrieving failed”).
 
 ---
 
