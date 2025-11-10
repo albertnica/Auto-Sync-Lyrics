@@ -1,140 +1,105 @@
-# AI Lyrics Retriever and Synchronizer
+# AI Lyrics Retriever & Synchronizer
 
-## Project overview
+A practical Python tool to generate synchronized LRC lyrics for audio files (FLAC). The project combines multi-model ASR (Whisper) and interpolation logic to produce conservative, high-quality line timestamps and LRC files from plain Genius lyrics.
 
-Anchors-Strict LRC Generator is a Python script designed to produce **strict** (timestamped) LRC lyric files for audio (FLAC) by:
+## Features
+- Compare transcriptions from multiple Whisper models and pick the best candidate.
+- Identify reliable anchor lines and interpolate timestamps for other lines.
+- Preserve and reuse canonical LRCs in a local `.lyrics_db` folder.
+- Treat local `.lrc` files placed inside `songs/` as authoritative (moved into `lyrics/` and copied to `.lyrics_db`).
+- Optional Genius integration to fetch raw lyrics (requires token in `credentials.json`).
+- Per-run logs and per-model diagnostics saved under `.logs/`.
 
-* comparing transcriptions from multiple Open AI Whisper models,
-* selecting the transcription that provides the best set of reliable **anchors** (lyric lines that can be confidently timestamped),
-* interpolating timestamps for the remaining lines while avoiding interpolation across long silences,
-* saving generated LRC files to an output folder and to a normalized local DB (`.lyrics_db`),
-* optionally fetching lyrics from Genius when local lyrics are not available.
+## Quick start
 
-The use of [LRCGET](https://github.com/tranxuanthang/lrcget) is highly recommended; apply it to the `songs` folder before proceeding. This code also depends on the metadata of the music files, which is why [this project](https://github.com/albertnica/Music-Metadata-Handler) may prove useful as well.
+Prerequisites:
+- Python 3.10+ (3.13 recommended).
+- Git (optional).
 
----
+1) Clone the repo (or download the files):
 
-## Key features
-
-* Compares multiple Whisper models (`TRANSCRIBE_MODELS`) and selects the best by anchor count and score.
-* Uses a local lyrics DB `.lyrics_db` to restore or reuse processed LRCs.
-* If an LRC file is present inside `songs`, it is treated as **authoritative**: moved into `lyrics` and copied into `.lyrics_db`, overwriting prior DB entries.
-* Fetches lyrics from Genius (if configured) and writes raw lyrics only to `.logs` (not to `songs`).
-* Avoids interpolating across long silences and applies robust clustering to ignore repeated chorus lines as anchors.
-* Produces human-readable logs for each model and a `.logs/.anchors.txt` file listing useful info.
-
----
-
-## Repository layout
-
-```
-project-root
-├─ songs                        # put your audio (.flac) + optional local .lrc files here
-├─ lyrics                       # .lrc output files
-├─ .lyrics_db                   # canonical stored LRCs (Title - Artist.lrc), used for restore
-├─ .logs                        # transcripts, model logs, raw lyrics, .anchors.txt
-├─ credentials.json             # API tokens (Genius)
-├─ anchors_lrc_generator.ipynb  # main script
-├─ requirements.txt             # python dependencies
-└─ README.md
+```powershell
+git clone <repo-url>
+cd Automatic-Lyrics-Synchronizer
 ```
 
----
+2) Create and activate a virtual environment:
 
-## Credentials and Genius API
+```powershell
+python -m venv venv
+venv\Scripts\Activate.ps1
+```
 
-The script reads `credentials.json` file from the repository root. Example file:
+3) Install Python dependencies:
+
+```powershell
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+4) (Optional) Install a CUDA-enabled PyTorch wheel if you plan to use GPU acceleration. Find the right command for your system at https://pytorch.org/ and run it in the activated venv.
+
+```powershell
+pip install --index-url https://download.pytorch.org/whl/cu121 torch torchvision
+```
+
+5) Prepare folders and assets:
+- Put your FLAC files (and optional existing .lrc files) under `songs/`.
+- Optionally run [LRCGET](https://github.com/tranxuanthang/lrcget) on the `songs/` folder to search for existing synced lyric files from public sources.
+- Create a `credentials.json` at the project root if you want Genius support:
 
 ```json
 {
-  "genius_access_token": "YOUR_GENIUS_API_TOKEN"
+  "genius_access_token": "YOUR_GENIUS_TOKEN"
 }
 ```
 
-Put your Genius API token in `genius_access_token`.
+6) Run the main script:
 
-### How to obtain a Genius API token
+```powershell
+python main.py
+```
 
-1. Create a Genius account (if you don't have one).
-2. Go to their API client/Developer section and register a new API client (this process may require approval or notes).
-3. Copy the **access token** (sometimes called “API token” or “client access token”) and paste it into `credentials.json`.
-4. The script uses `lyricsgenius` which expects a token with privileges to fetch song details and lyrics via the Genius API.
+After a successful run:
+- Generated LRCs are written to `lyrics/`.
+- Canonical copies are stored in `.lyrics_db/`.
+- Logs and raw data for each run appear under `.logs/<timestamp>/`.
 
----
+## Configuration
 
-## Input conventions & authoritative LRC behavior
+Edit `config.py` to tune behavior. Key options:
+- `DEBUG`: verbose debug output.
+- `SONGS_FOLDER`, `LYRICS_FOLDER`, `LYRICS_DB_FOLDER`, `LOGS_FOLDER`.
+- `TRANSCRIBE_MODELS`: list of Whisper model names to try (order matters).
 
-* Put `.flac` files inside `songs`. If a `.lrc` with the same base filename exists in `songs`, the script now treats it as **authoritative**:
+## How it works
 
-  * The `.lrc` will be **moved** into `lyrics` (replacing any existing file of the same filename there).
-  * The moved `.lrc` will be **copied** into `.lyrics_db` under the canonical name `"<Title> - <Artist>.lrc"` (derived from FLAC metadata or the LRC header tags `[ti:]` and `[ar:]`), overwriting any existing DB entry.
-  * If the move fails (cross-device or permissions), the script falls back to copy+remove.
-* If there is no `.lrc` and there is a `.txt` with lyrics (same basename), that `.txt` is used as source lyrics (not automatically ingested as authoritative LRC).
-* If lyrics are not present locally, and you provided a Genius token, the script will attempt to fetch lyrics from Genius. Raw fetched lyrics are saved only under `.logs` (`<basename>.raw_lyrics.txt`).
+1. Create a per-run folder in `.logs/` and initialize logging.
+2. Recreate the `lyrics/` output folder and ingest any `.lrc` files found in `songs/` (these are treated as authoritative).
+3. For each `.flac` in `songs/`:
+   - Try to restore an existing canonical LRC from `.lyrics_db/` using FLAC metadata (title/artist).
+   - If not restored, use a local `.txt` (if present) as the lyrics source.
+   - If no local lyrics and a Genius token exists, attempt to fetch lyrics (raw text saved to logs only).
+   - For each configured ASR model:
+     - Transcribe the audio and collect token timestamps where available.
+     - Compute candidate anchors for lyric lines and filter by thresholds.
+     - Interpolate timestamps for non-anchor lines while avoiding interpolation across long silences.
+   - Score each model and choose the best one.
+   - Write the final `.lrc` into `lyrics/` and copy into `.lyrics_db/` under a canonical name derived from metadata.
 
----
+Detailed logs for each step are saved under the run folder to help debugging and tuning.
 
-## Configuration options (script-level constants)
+## Troubleshooting & tips
 
-The script contains a `CONFIG` block of constants near the top. Important options you may tune:
+- If a model fails to run, check `.logs/<run>/` for per-model logs and stack traces.
+- If Genius seems to return wrong matches, ensure your FLAC metadata (artist/title) is correct; the system expects a strict title match in candidate scanning by default.
+- For large batches, prefer running with a GPU-enabled torch build and increase available resources.
 
-* `DEBUG` (bool): enable verbose debug prints.
-* Folder names: `SONGS_FOLDER`, `LYRICS_FOLDER`, `LYRICS_DB_FOLDER`, `LOGS_FOLDER`.
-* `TRANSCRIBE_MODELS` (list): the Whisper model names to compare (e.g., `["large-v3", "large-v3-turbo"]`).
-* Interpolation and silence thresholds:
+## In future versions
 
-  * `MIN_SILENCE_DURATION` — minimum gap to consider a silence.
-  * `LONG_SILENCE_THRESHOLD` — silence length that blocks interpolation across it.
-  * `THRESH_ANCHOR` — minimal similarity score to accept a candidate anchor.
-  * `MIN_OVERLAP` — minimal fraction of lyric words present in the matched transcription window.
-  * `MIN_ANCHOR_SPACING` — minimum seconds between anchors to avoid clustered anchors.
-* Timestamp fallback/progression:
+Support custom plain lyrics as an input on /songs.
+Personal lyrics database with Supabase
 
-  * `MIN_LINE_PROGRESSION`, `FALLBACK_SPACING`, `FIRST_LINE_WEIGHT`.
+## License
 
-Adjust these values to tune precision vs recall of anchors and interpolation behavior.
-
----
-
-## How the script works (high-level flow)
-
-1. **Initialization**: folders are created/cleaned (`lyrics` recreated, `.lyrics_db` preserved).
-2. **Ingest LRCs in `songs`**: any `.lrc` present in `songs` are moved to `lyrics` and copied into `.lyrics_db`.
-3. **Clean songs**: non-audio files in `songs` are removed (only `.flac`, `.mp3`, `.wav` preserved).
-4. **Loop over `.flac` files**:
-
-   * Try early restore from `.lyrics_db` using FLAC metadata (title/artist).
-   * If `.txt` lyrics exist, use them as source lyrics.
-   * If not and Genius is configured, try to fetch lyrics from Genius.
-   * Split lyrics into lines, cluster repeated lines (chorus repeats) and exclude repeated clusters from anchor candidates.
-   * For each Whisper model in `TRANSCRIBE_MODELS`:
-
-     * Transcribe using Whisper (attempt `word_timestamps` if supported).
-     * Clean token timestamps, detect long silences.
-     * Compute anchor candidates for each lyric line. Accept anchors by thresholds (score >= `THRESH_ANCHOR`, overlap >= `MIN_OVERLAP`, spacing).
-     * Save per-model logs (`.log`, `.transcript.txt`, `.whisper.ts.txt`).
-     * Compute interpolated final times for all lines using anchors and avoiding long silences.
-   * Choose the best model (most anchors, then highest score_sum).
-   * Write the final `.lrc` into `lyrics` and copy into `.lyrics_db` if FLAC metadata exists (or canonicalized name).
-5. **Write `.logs/.anchors.txt`** listing files containing the song basename and the result (chosen model name or a failure tag like “all models failed” / “lyrics retrieving failed”).
-
----
-
-## Advanced / Tuning suggestions
-
-* Change `TRANSCRIBE_MODELS` to smaller models to speed up processing (`base`, `small`) or larger ones for higher accuracy.
-* Tune `THRESH_ANCHOR` and `MIN_OVERLAP` to be more/less permissive.
-* Add an `INGEST_OVERWRITE` boolean in configuration to toggle whether `.lrc` in `songs` should overwrite DB or just copy.
-* Add versioned backups of `.lyrics_db` on each overwrite for safety.
-
----
-
-## Installation
-
-1. **Install Python dependencies**  
-   ```bash
-   pip install -r requirements.txt
-
-2. Install PyTorch with CUDA support (adjust CUDA version as needed):
-   ```bash
-   pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cu129
+See LICENSE in the repository root.

@@ -3,3 +3,9 @@
 lyrics
 songs
 credentials.json
+.mypy_cache
+__pycache__
+modules/__pycache__
+fe.txt
+bm.txt
+deleter.py

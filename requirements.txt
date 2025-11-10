@@ -1,4 +1,7 @@
-ipykernel
-openai-whisper
-lyricsgenius
 mutagen
+lyricsgenius
+requests
+transformers
+sentencepiece
+typing-extensions
+# torch -> best to install through their webpage
